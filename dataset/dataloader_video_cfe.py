@@ -1,9 +1,68 @@
 import os
+import math
+import random
 
 import numpy as np
 import torch
+from torch.utils.data.sampler import Sampler
 
 from dataset.dataloader_video import BaseFeeder
+
+
+class EnvironmentBalancedBatchSampler(Sampler):
+    """Build batches that contain samples from as many environments as possible."""
+
+    def __init__(
+            self,
+            sample_environments,
+            batch_size,
+            drop_last=True,
+            shuffle=True
+    ):
+        self.sample_environments = list(sample_environments)
+        self.batch_size = int(batch_size)
+        self.drop_last = drop_last
+        self.shuffle = shuffle
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        total = len(self.sample_environments)
+        if self.drop_last:
+            self.batch_count = total // self.batch_size
+        else:
+            self.batch_count = int(math.ceil(total / float(self.batch_size)))
+
+    def __iter__(self):
+        queues = {}
+        for index, environment in enumerate(self.sample_environments):
+            queues.setdefault(environment, []).append(index)
+        for indices in queues.values():
+            if self.shuffle:
+                random.shuffle(indices)
+
+        for _ in range(self.batch_count):
+            active_environments = [
+                environment
+                for environment, indices in queues.items()
+                if indices
+            ]
+            if self.shuffle:
+                random.shuffle(active_environments)
+            active_environments.sort(
+                key=lambda environment: len(queues[environment]),
+                reverse=True,
+            )
+            batch = [
+                queues[environment].pop()
+                for environment in active_environments[:self.batch_size]
+            ]
+
+            if len(batch) < self.batch_size and self.drop_last:
+                break
+            if batch:
+                yield batch
+
+    def __len__(self):
+        return self.batch_count
 
 
 class CFEFeeder(BaseFeeder):
@@ -15,6 +74,7 @@ class CFEFeeder(BaseFeeder):
             gloss_dict,
             info_dir="./preprocess/phoenix2014",
             environment_field="signer",
+            environment_balanced=False,
             **kwargs
     ):
         super(CFEFeeder, self).__init__(
@@ -45,6 +105,20 @@ class CFEFeeder(BaseFeeder):
             environment: index for index, environment in enumerate(environments)
         }
         self.num_environments = len(environments)
+        self.environment_balanced = bool(environment_balanced)
+        sample_count = len(self.inputs_list) - 1
+        self.sample_environments = [
+            self.environment_id(self.inputs_list[index]["original_info"])
+            for index in range(sample_count)
+        ]
+
+    def environment_balanced_batch_sampler(self, batch_size, drop_last=True):
+        return EnvironmentBalancedBatchSampler(
+            sample_environments=self.sample_environments,
+            batch_size=batch_size,
+            drop_last=drop_last,
+            shuffle=True,
+        )
 
     def environment_id(self, original_info):
         parts = original_info.split("|")

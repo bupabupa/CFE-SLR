@@ -1,7 +1,7 @@
 # CFE-SLR revision notes
 
-This directory is the reviewer-driven revision. The pre-revision implementation
-is preserved separately in `../CFE-SLR-old`.
+This branch is the reviewer-driven revision. The pre-revision implementation is
+preserved on `main`.
 
 ## What changed
 
@@ -19,9 +19,14 @@ with explicit assumptions:
 4. A scaled linear-kernel HSIC penalty reduces dependence between the two
    representations. Batches with fewer than three samples use a cross-covariance
    fallback because the unbiased HSIC estimator is unstable there.
-5. Brightness, contrast, gamma, and small sensor-noise perturbations construct
-   semantic-preserving intervention views. Symmetric prediction consistency
-   encourages stable visual CTC outputs under these views.
+5. An environment-balanced sampler composes each training batch from different
+   signers whenever possible.
+6. A group-risk variance penalty uses per-signer CTC risks, so invariance is
+   optimized across observed environments rather than inferred from a single
+   sample.
+7. Brightness, contrast, gamma, and small sensor-noise perturbations construct
+   semantic-preserving intervention views. Prediction consistency encourages
+   stable visual CTC outputs under these views.
 
 The perturbation is called an **intervention proxy**, not a structural
 counterfactual. It can support robustness experiments, but it does not by
@@ -45,12 +50,16 @@ L = L_CTC(conv) + L_CTC(seq)
     + lambda_cf * KL(P(Y|X) || P(Y|T_env(X)))
     + lambda_env * CE(D_e(Z_e), signer)
     + lambda_adv * CE(D_a(GRL(Z_s)), signer)
+    + lambda_inv * Var_e(R_e)
     + lambda_dis * HSIC(Z_s, Z_e)
     + lambda_text * L_privileged
 ```
 
 `KL` consistency uses the perturbed view as a stop-gradient target. The clean
 network is trained to remain stable, avoiding a second backpropagation graph.
+`R_e` is the mean CTC risk of samples from environment `e` in the current batch.
+This is a risk-extrapolation-style invariance penalty, not a proof of causal
+identification.
 
 ## Claims that must not be reused
 

@@ -585,13 +585,48 @@ class CFESLRModel(nn.Module):
             )
         return output
 
-    def _ctc_loss(self, logits, label, input_length, target_length):
-        return self.loss["CTCLoss"](
+    def _ctc_loss(
+            self,
+            logits,
+            label,
+            input_length,
+            target_length,
+            reduce=True
+    ):
+        losses = self.loss["CTCLoss"](
             logits.log_softmax(dim=-1),
             label.cpu().int(),
             input_length.cpu().int(),
             target_length.cpu().int(),
-        ).mean()
+        )
+        return losses.mean() if reduce else losses
+
+    def _group_risk_variance(self, ret_dict, label, label_lgt):
+        env_ids = ret_dict.get("env_ids")
+        zero = ret_dict["sequence_logits"].sum() * 0.0
+        if env_ids is None:
+            return zero
+        conv_risks = self._ctc_loss(
+            ret_dict["conv_logits"],
+            label,
+            ret_dict["feat_len"],
+            label_lgt,
+            reduce=False,
+        )
+        sequence_risks = self._ctc_loss(
+            ret_dict["sequence_logits"],
+            label,
+            ret_dict["feat_len"],
+            label_lgt,
+            reduce=False,
+        )
+        sample_risks = 0.5 * (conv_risks + sequence_risks)
+        group_means = []
+        for environment in torch.unique(env_ids):
+            group_means.append(sample_risks[env_ids == environment].mean())
+        if len(group_means) < 2:
+            return zero
+        return torch.stack(group_means).var(unbiased=False)
 
     @staticmethod
     def _prediction_kl(student_logits, teacher_logits, lengths):
@@ -642,6 +677,12 @@ class CFESLRModel(nn.Module):
                 env_ids = ret_dict.get("env_ids")
                 current = zero if env_ids is None else F.cross_entropy(
                     ret_dict["semantic_environment_logits"], env_ids.long()
+                )
+            elif name == "InvariantRisk":
+                current = self._group_risk_variance(
+                    ret_dict,
+                    label,
+                    label_lgt,
                 )
             elif name == "Disentangle":
                 current = _linear_hsic(

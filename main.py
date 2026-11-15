@@ -181,6 +181,17 @@ class Processor():
         print("Loading data finished.")
 
     def build_dataloader(self, dataset, mode, train_flag):
+        if train_flag and getattr(dataset, "environment_balanced", False):
+            batch_sampler = dataset.environment_balanced_batch_sampler(
+                batch_size=self.arg.batch_size,
+                drop_last=True,
+            )
+            return torch.utils.data.DataLoader(
+                dataset,
+                batch_sampler=batch_sampler,
+                num_workers=self.arg.num_worker,
+                collate_fn=self.feeder.collate_fn,
+            )
         return torch.utils.data.DataLoader(
             dataset,
             batch_size=self.arg.batch_size if mode == "train" else self.arg.test_batch_size,

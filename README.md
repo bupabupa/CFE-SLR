@@ -1,4 +1,19 @@
 # VAC_CSLR
+
+## Reviewer-driven CFE-SLR revision
+
+The branch `revision-causal-invariant` contains the revised implementation:
+
+- semantic/environment representation disentangling;
+- gradient-reversal nuisance suppression and HSIC regularization;
+- environment-balanced training batches and per-signer risk invariance;
+- semantic-preserving intervention proxies with prediction consistency;
+- visual-only inference, with GT gloss retained only as an optional privileged
+  training teacher.
+
+The original pre-revision implementation is preserved on `main`. See
+`CFE_SLR_REVISION.md` for the assumptions and claims that must not be reused.
+
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/visual-alignment-constraint-for-continuous/sign-language-recognition-on-rwth-phoenix)](https://paperswithcode.com/sota/sign-language-recognition-on-rwth-phoenix?p=visual-alignment-constraint-for-continuous)
 
 This repo holds the code of the paper: Visual Alignment Constraint for Continuous Sign Language Recognition.(ICCV 2021) [[paper]](https://openaccess.thecvf.com/content/ICCV2021/html/Min_Visual_Alignment_Constraint_for_Continuous_Sign_Language_Recognition_ICCV_2021_paper.html)

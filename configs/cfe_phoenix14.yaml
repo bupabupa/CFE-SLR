@@ -19,6 +19,7 @@ loss_weights:
   Consistency: 0.20
   EnvironmentCE: 0.10
   EnvironmentAdv: 0.05
+  InvariantRisk: 0.05
   Disentangle: 0.01
   PrivilegedTeacher: 0.0
 
@@ -36,6 +37,7 @@ feeder_args:
   datatype: video
   num_gloss: -1
   drop_ratio: 1.0
+  environment_balanced: True
   info_dir: /var/lib/docker/wd/Sign/codes/VAC_CSLR/preprocess/phoenix2014
 
 model: cfe_slr_network.CFESLRModel

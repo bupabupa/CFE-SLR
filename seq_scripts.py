@@ -21,13 +21,13 @@ def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
         label = device.data_to_device(data[2])
         label_lgt = device.data_to_device(data[3])
         env_ids = device.data_to_device(data[5]) if len(data) > 5 else None
-        ret_dict = model(
-            vid,
-            vid_lgt,
-            label=label,
-            label_lgt=label_lgt,
-            env_ids=env_ids,
-        )
+        model_inputs = {
+            "label": label,
+            "label_lgt": label_lgt,
+        }
+        if env_ids is not None:
+            model_inputs["env_ids"] = env_ids
+        ret_dict = model(vid, vid_lgt, **model_inputs)
         loss = model.criterion_calculation(ret_dict, label, label_lgt)
         if np.isinf(loss.item()) or np.isnan(loss.item()):
             print(data[-1])
@@ -61,13 +61,13 @@ def seq_eval(cfg, loader, model, device, mode, epoch, work_dir, recoder,
         label_lgt = device.data_to_device(data[3])
         env_ids = device.data_to_device(data[5]) if len(data) > 5 else None
         with torch.no_grad():
-            ret_dict = model(
-                vid,
-                vid_lgt,
-                label=label,
-                label_lgt=label_lgt,
-                env_ids=env_ids,
-            )
+            model_inputs = {
+                "label": label,
+                "label_lgt": label_lgt,
+            }
+            if env_ids is not None:
+                model_inputs["env_ids"] = env_ids
+            ret_dict = model(vid, vid_lgt, **model_inputs)
 
         total_info += [file_name.split("|")[0] for file_name in data[4]]
         total_sent += ret_dict['recognized_sents']
@@ -107,7 +107,7 @@ def seq_feature_generation(loader, model, device, mode, work_dir, recoder):
     src_path = os.path.abspath(f"{work_dir}{mode}")
     tgt_path = os.path.abspath(f"./features/{mode}")
     if not os.path.exists("./features/"):
-    	os.makedirs("./features/")
+        os.makedirs("./features/")
 
     if os.path.islink(tgt_path):
         curr_path = os.readlink(tgt_path)
