@@ -1,0 +1,63 @@
+feeder: dataset.dataloader_video_cfe.CFEFeeder
+phase: train
+dataset: phoenix14
+num_epoch: 40
+work_dir: ./work_dir/cfe_phoenix14_revision/
+batch_size: 2
+random_seed: 0
+test_batch_size: 8
+num_worker: 10
+device: 1
+log_interval: 20
+eval_interval: 1
+save_interval: 5
+evaluate_tool: sclite
+
+loss_weights:
+  SeqCTC: 1.0
+  ConvCTC: 1.0
+  Consistency: 0.20
+  EnvironmentCE: 0.10
+  EnvironmentAdv: 0.05
+  Disentangle: 0.01
+  PrivilegedTeacher: 0.0
+
+optimizer_args:
+  optimizer: Adam
+  base_lr: 0.0001
+  step: [20, 35]
+  learning_ratio: 1
+  weight_decay: 0.0001
+  start_epoch: 0
+  nesterov: False
+
+feeder_args:
+  mode: train
+  datatype: video
+  num_gloss: -1
+  drop_ratio: 1.0
+  info_dir: /var/lib/docker/wd/Sign/codes/VAC_CSLR/preprocess/phoenix2014
+
+model: cfe_slr_network.CFESLRModel
+decode_mode: beam
+model_args:
+  num_classes: 1296
+  c2d_type: resnet34
+  conv_type: 2
+  use_bn: 1
+  share_classifier: False
+  weight_norm: False
+  hidden_size: 1024
+  pretrained_backbone: True
+  gradient_checkpointing: True
+  num_environments: 9
+  environment_size: 256
+  adversary_strength: 0.1
+  perturbation_brightness: 0.15
+  perturbation_contrast: 0.15
+  perturbation_gamma: 0.15
+  perturbation_noise: 0.01
+  text_model_path: null
+  text_hidden_size: 768
+  freeze_text_encoder: True
+  text_max_length: 8

@@ -25,7 +25,7 @@ sys.path.append("..")
 
 class BaseFeeder(data.Dataset):
     def __init__(self, prefix, gloss_dict, drop_ratio=1, num_gloss=-1, mode="train", transform_mode=True,
-                 datatype="lmdb"):
+                 datatype="lmdb", info_dir="./preprocess/phoenix2014"):
         self.mode = mode
         self.ng = num_gloss
         self.prefix = prefix
@@ -33,7 +33,10 @@ class BaseFeeder(data.Dataset):
         self.data_type = datatype
         self.feat_prefix = f"{prefix}/features/fullFrame-256x256px/{mode}"
         self.transform_mode = "train" if transform_mode else "test"
-        self.inputs_list = np.load(f"./preprocess/phoenix2014/{mode}_info.npy", allow_pickle=True).item()
+        self.inputs_list = np.load(
+            os.path.join(info_dir, "{}_info.npy".format(mode)),
+            allow_pickle=True,
+        ).item()
         # self.inputs_list = np.load(f"{prefix}/annotations/manual/{mode}.corpus.npy", allow_pickle=True).item()
         # self.inputs_list = np.load(f"{prefix}/annotations/manual/{mode}.corpus.npy", allow_pickle=True).item()
         # self.inputs_list = dict([*filter(lambda x: isinstance(x[0], str) or x[0] < 10, self.inputs_list.items())])

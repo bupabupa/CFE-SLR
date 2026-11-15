@@ -20,7 +20,14 @@ def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
         vid_lgt = device.data_to_device(data[1])
         label = device.data_to_device(data[2])
         label_lgt = device.data_to_device(data[3])
-        ret_dict = model(vid, vid_lgt, label=label, label_lgt=label_lgt)
+        env_ids = device.data_to_device(data[5]) if len(data) > 5 else None
+        ret_dict = model(
+            vid,
+            vid_lgt,
+            label=label,
+            label_lgt=label_lgt,
+            env_ids=env_ids,
+        )
         loss = model.criterion_calculation(ret_dict, label, label_lgt)
         if np.isinf(loss.item()) or np.isnan(loss.item()):
             print(data[-1])
@@ -52,10 +59,17 @@ def seq_eval(cfg, loader, model, device, mode, epoch, work_dir, recoder,
         vid_lgt = device.data_to_device(data[1])
         label = device.data_to_device(data[2])
         label_lgt = device.data_to_device(data[3])
+        env_ids = device.data_to_device(data[5]) if len(data) > 5 else None
         with torch.no_grad():
-            ret_dict = model(vid, vid_lgt, label=label, label_lgt=label_lgt)
+            ret_dict = model(
+                vid,
+                vid_lgt,
+                label=label,
+                label_lgt=label_lgt,
+                env_ids=env_ids,
+            )
 
-        total_info += [file_name.split("|")[0] for file_name in data[-1]]
+        total_info += [file_name.split("|")[0] for file_name in data[4]]
         total_sent += ret_dict['recognized_sents']
         total_conv_sent += ret_dict['conv_sents']
     try:
@@ -117,7 +131,7 @@ def seq_feature_generation(loader, model, device, mode, work_dir, recoder):
         start = 0
         for sample_idx in range(len(vid)):
             end = start + data[3][sample_idx]
-            filename = f"{src_path}/{data[-1][sample_idx].split('|')[0]}_features.npy"
+            filename = f"{src_path}/{data[4][sample_idx].split('|')[0]}_features.npy"
             save_file = {
                 "label": data[2][start:end],
                 "features": ret_dict['framewise_features'][sample_idx][:, :vid_lgt[sample_idx]].T.cpu().detach(),
