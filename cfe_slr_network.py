@@ -30,6 +30,21 @@ class GradientReversal(nn.Module):
         return _GradientReversal.apply(inputs, self.strength)
 
 
+class NormLinear(nn.Module):
+    """Linear layer with normalized class weights."""
+
+    def __init__(self, input_size, output_size):
+        super(NormLinear, self).__init__()
+        self.weight = nn.Parameter(torch.empty(input_size, output_size))
+        nn.init.xavier_uniform_(
+            self.weight,
+            gain=nn.init.calculate_gain("relu"),
+        )
+
+    def forward(self, inputs):
+        return inputs.matmul(F.normalize(self.weight, dim=0))
+
+
 class SemanticPreservingPerturbation(nn.Module):
     """Photometric intervention proxy that preserves the sign motion."""
 
@@ -84,6 +99,15 @@ class CFEResNetEncoder(nn.Module):
         self.avgpool = backbone.avgpool
         self.output_size = backbone.layer4[-1].bn2.num_features
 
+    def train(self, mode=True):
+        super(CFEResNetEncoder, self).train(mode)
+        if mode and self.gradient_checkpointing:
+            # Checkpoint recomputation must not update BatchNorm statistics twice.
+            for module in self.modules():
+                if isinstance(module, nn.modules.batchnorm._BatchNorm):
+                    module.eval()
+        return self
+
     def _run_layer(self, layer, features, use_checkpoint):
         if use_checkpoint:
             return checkpoint(layer, features)
@@ -137,53 +161,85 @@ class InteractiveContextLearning(nn.Module):
         return (sequence * gate).transpose(0, 1)
 
 
-def _ctc_forced_align(log_probs, target, target_length, input_length):
-    """Return frame indices for each target token using the current CTC path."""
+def _ctc_forced_align(
+        log_probs,
+        target,
+        target_length,
+        input_length,
+        blank=0,
+):
+    """Return maximum-probability CTC frames for each target token."""
+    if log_probs.dim() != 2:
+        raise ValueError("log_probs must have shape (time, classes)")
     frames = min(int(input_length), log_probs.size(0))
-    labels = target[:int(target_length)].tolist()
+    target_length = int(target_length)
+    if torch.is_tensor(target):
+        labels = target[:target_length].detach().cpu().long().tolist()
+    else:
+        labels = [int(label) for label in target[:target_length]]
     label_count = len(labels)
     if label_count == 0 or frames <= 0:
         return []
+    if frames < label_count:
+        raise ValueError(
+            "CTC alignment requires at least one frame per target token"
+        )
+    blank = int(blank)
+    if blank < 0 or blank >= log_probs.size(1):
+        raise ValueError("blank id is outside the class vocabulary")
+    if any(label < 0 or label >= log_probs.size(1) for label in labels):
+        raise ValueError("target contains a class id outside the vocabulary")
 
     states = label_count * 2 + 1
-    log_values = log_probs[:frames].detach().cpu()
+    log_values = log_probs[:frames].detach().to(torch.float64).cpu()
     negative_inf = -1.0e30
     scores = torch.full((frames, states), negative_inf, dtype=torch.float64)
     backpointers = torch.full((frames, states), -1, dtype=torch.long)
-    scores[0, 0] = float(log_values[0, 0])
+    scores[0, 0] = log_values[0, blank]
     if states > 1:
-        scores[0, 1] = float(log_values[0, labels[0]])
+        scores[0, 1] = log_values[0, labels[0]]
 
     for timestep in range(1, frames):
         for state in range(states):
-            candidates = [(float(scores[timestep - 1, state]), state)]
+            candidates = [(scores[timestep - 1, state], state)]
             if state > 0:
-                candidates.append((float(scores[timestep - 1, state - 1]), state - 1))
+                candidates.append(
+                    (scores[timestep - 1, state - 1], state - 1)
+                )
             if (
                 state > 1
                 and state % 2 == 0
                 and labels[state // 2 - 1] != labels[state // 2 - 2]
             ):
                 candidates.append(
-                    (float(scores[timestep - 1, state - 2]), state - 2)
+                    (scores[timestep - 1, state - 2], state - 2)
                 )
             best_score, best_state = max(candidates, key=lambda item: item[0])
-            state_index = state if state % 2 == 1 else 0
-            scores[timestep, state] = (
-                best_score + float(log_values[timestep, state_index])
-            )
+            if best_score <= negative_inf / 2.0:
+                continue
+            class_index = blank if state % 2 == 0 else labels[state // 2]
+            scores[timestep, state] = best_score + log_values[
+                timestep, class_index
+            ]
             backpointers[timestep, state] = best_state
 
-    final_state = states - 1
-    if states > 1 and scores[-1, states - 2] > scores[-1, states - 1]:
-        final_state = states - 2
+    final_candidates = [states - 1]
+    if states > 1:
+        final_candidates.append(states - 2)
+    final_state = max(final_candidates, key=lambda state: scores[-1, state])
+    if scores[-1, final_state] <= negative_inf / 2.0:
+        raise ValueError(
+            "No valid CTC path exists for the supplied target and length"
+        )
+
     state_indices = []
     state = final_state
     for timestep in range(frames - 1, -1, -1):
         state_indices.append((timestep, state))
-        state = int(backpointers[timestep, state])
-        if state < 0 and timestep > 0:
-            break
+        previous_state = int(backpointers[timestep, state])
+        if timestep > 0 and previous_state < 0:
+            raise ValueError("CTC backtrace reached an unreachable state")
+        state = previous_state
     state_indices.reverse()
 
     aligned_frames = [[] for _ in range(label_count)]
@@ -288,7 +344,13 @@ class PrivilegedGlossTeacher(nn.Module):
         input_ids = tokenized["input_ids"].to(device)
         attention_mask = tokenized["attention_mask"].to(device)
         special_mask = tokenized["special_tokens_mask"].to(device)
-        with torch.no_grad():
+        if self.freeze_text_encoder:
+            with torch.no_grad():
+                encoded = self.text_encoder(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                ).last_hidden_state
+        else:
             encoded = self.text_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -333,6 +395,7 @@ class CFESLRModel(nn.Module):
             text_hidden_size=768,
             freeze_text_encoder=True,
             text_max_length=8,
+            teacher_temperature=2.0,
     ):
         super(CFESLRModel, self).__init__()
         if gloss_dict is None:
@@ -379,9 +442,12 @@ class CFESLRModel(nn.Module):
             num_layers=2,
             bidirectional=True,
         )
-        self.classifier = nn.Linear(hidden_size, num_classes)
-        self.conv1d.fc = self.classifier if share_classifier else nn.Linear(
-            hidden_size, num_classes
+        classifier_type = NormLinear if weight_norm else nn.Linear
+        self.classifier = classifier_type(hidden_size, num_classes)
+        self.conv1d.fc = (
+            self.classifier
+            if share_classifier
+            else classifier_type(hidden_size, num_classes)
         )
 
         self.perturbation = SemanticPreservingPerturbation(
@@ -391,6 +457,9 @@ class CFESLRModel(nn.Module):
             noise=perturbation_noise,
         )
         self.gloss_dict = gloss_dict
+        self.teacher_temperature = float(teacher_temperature)
+        if self.teacher_temperature <= 0.0:
+            raise ValueError("teacher_temperature must be positive")
         self.text_teacher = None
         if text_model_path and self.loss_weights.get("PrivilegedTeacher", 0.0) > 0:
             self.text_teacher = PrivilegedGlossTeacher(
@@ -485,11 +554,17 @@ class CFESLRModel(nn.Module):
         teacher_logits = self.text_teacher(
             gloss_labels.clamp(min=0),
             gloss_mask,
-        ).detach()
-        teacher_probs = teacher_logits.softmax(dim=-1)
+        )
+        teacher_ce = F.cross_entropy(
+            teacher_logits[gloss_mask],
+            gloss_labels[gloss_mask],
+        )
+        teacher_probs = (
+            teacher_logits.detach() / self.teacher_temperature
+        ).softmax(dim=-1)
         sequence_log_probs = output["sequence_logits"].log_softmax(dim=-1)
 
-        losses = []
+        distillation_losses = []
         for sample_index, sample_labels in enumerate(labels):
             active_length = int(output["feat_len"][sample_index].item())
             aligned = _ctc_forced_align(
@@ -506,14 +581,24 @@ class CFESLRModel(nn.Module):
                     dtype=torch.long,
                     device=label.device,
                 )
-                student = sequence_log_probs[:, sample_index, :].index_select(0, frames)
-                target = teacher_probs[sample_index, gloss_index].unsqueeze(0)
-                losses.append(
-                    -(target * student).sum(dim=-1).mean()
+                student = sequence_log_probs[:, sample_index, :].index_select(
+                    0,
+                    frames,
                 )
-        if not losses:
-            return output["sequence_logits"].sum() * 0.0
-        return torch.stack(losses).mean()
+                student = (student / self.teacher_temperature).log_softmax(
+                    dim=-1
+                )
+                target = teacher_probs[sample_index, gloss_index].unsqueeze(0)
+                distillation_losses.append(
+                    F.kl_div(
+                        student,
+                        target,
+                        reduction="batchmean",
+                    ) * self.teacher_temperature ** 2
+                )
+        if not distillation_losses:
+            return teacher_ce
+        return teacher_ce + torch.stack(distillation_losses).mean()
 
     def forward(
             self,

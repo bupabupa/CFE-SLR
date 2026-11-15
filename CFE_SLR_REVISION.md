@@ -32,14 +32,32 @@ The perturbation is called an **intervention proxy**, not a structural
 counterfactual. It can support robustness experiments, but it does not by
 itself prove that the learned representation is causally identified.
 
+## Correctness fixes from source review
+
+- CTC Viterbi emission states now map odd states through `labels[state // 2]`
+  instead of treating the state number as a class id. The skip-blank transition
+  is tested with repeated glosses.
+- Teacher and student predictions share the compressed sequence time
+  coordinate. No index from `conv_logits` is used to index raw frame features.
+- The optional text teacher is trained with gloss-level cross entropy. Its
+  detached soft targets are then distilled into the visual student, so both the
+  teacher and the visual path receive explicit gradients.
+- `use_bn` and `weight_norm` now control the modules they name.
+- Gradient checkpointing keeps BatchNorm layers in evaluation mode, preventing
+  checkpoint recomputation from updating running statistics twice.
+- Multi-GPU setup handles both the VAC encoder (`conv2d`) and CFE encoder
+  (`visual_encoder`), and CPU execution no longer calls `.cuda()`.
+- Evaluation errors are no longer converted into a synthetic WER of 100.
+
 ## Privileged text
 
 The GT-gloss text encoder is optional and isolated in
 `PrivilegedGlossTeacher`. It is enabled only when
 `loss_weights.PrivilegedTeacher > 0` and a local BERT path is supplied. Its
-outputs are detached soft targets. It is training-only privileged information,
-not a multimodal input available at inference, and the default revision config
-keeps it disabled.
+projection and classifier are trained with gloss-level cross entropy, while its
+detached, temperature-scaled outputs are soft targets for the visual student.
+It is training-only privileged information, not a multimodal input available at
+inference, and the default revision config keeps it disabled.
 
 ## Loss
 
@@ -52,7 +70,7 @@ L = L_CTC(conv) + L_CTC(seq)
     + lambda_adv * CE(D_a(GRL(Z_s)), signer)
     + lambda_inv * Var_e(R_e)
     + lambda_dis * HSIC(Z_s, Z_e)
-    + lambda_text * L_privileged
+    + lambda_text * (L_teacher_CE + L_visual_KD)
 ```
 
 `KL` consistency uses the perturbed view as a stop-gradient target. The clean
@@ -80,6 +98,14 @@ Synthetic forward/backward test:
 ```bash
 CUDA_VISIBLE_DEVICES=1 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python \
   test_cfe_model.py
+```
+
+Correctness tests:
+
+```bash
+/var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_ctc_alignment.py
+/var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_teacher_distillation.py
+/var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_model_contracts.py
 ```
 
 Real PHOENIX14 batch test:

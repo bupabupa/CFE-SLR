@@ -63,3 +63,4 @@ model_args:
   text_hidden_size: 768
   freeze_text_encoder: True
   text_max_length: 8
+  teacher_temperature: 2.0

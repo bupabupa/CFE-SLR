@@ -78,6 +78,14 @@ def main():
             label_lgt=label_lengths,
             env_ids=env_ids,
         )
+        compressed_steps = int(output["feat_len"].max().item())
+        if (
+            output["conv_logits"].size(0) != compressed_steps
+            or output["sequence_logits"].size(0) != compressed_steps
+        ):
+            raise AssertionError(
+                "Real-batch CTC logits use inconsistent time coordinates"
+            )
         loss = model.criterion_calculation(output, labels, label_lengths)
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)

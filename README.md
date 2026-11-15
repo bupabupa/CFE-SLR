@@ -10,6 +10,8 @@ The branch `revision-causal-invariant` contains the revised implementation:
 - semantic-preserving intervention proxies with prediction consistency;
 - visual-only inference, with GT gloss retained only as an optional privileged
   training teacher.
+- verified CTC forced alignment, controllable BN/weight-normalization options,
+  and fail-fast evaluation/invalid-loss handling.
 
 The original pre-revision implementation is preserved on `main`. See
 `CFE_SLR_REVISION.md` for the assumptions and claims that must not be reused.

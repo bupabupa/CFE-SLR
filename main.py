@@ -121,12 +121,22 @@ class Processor():
     def model_to_device(self, model):
         model = model.to(self.device.output_device)
         if len(self.device.gpu_list) > 1:
-            model.conv2d = nn.DataParallel(
-                model.conv2d,
-                device_ids=self.device.gpu_list,
-                output_device=self.device.output_device)
+            if hasattr(model, "conv2d"):
+                model.conv2d = nn.DataParallel(
+                    model.conv2d,
+                    device_ids=self.device.gpu_list,
+                    output_device=self.device.output_device)
+            elif hasattr(model, "visual_encoder"):
+                model.visual_encoder = nn.DataParallel(
+                    model.visual_encoder,
+                    device_ids=self.device.gpu_list,
+                    output_device=self.device.output_device)
+            else:
+                model = nn.DataParallel(
+                    model,
+                    device_ids=self.device.gpu_list,
+                    output_device=self.device.output_device)
         model = convert_model(model)
-        model.cuda()
         return model
 
     def load_model_weights(self, model, weight_path):

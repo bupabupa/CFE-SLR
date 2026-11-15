@@ -31,7 +31,8 @@ class TemporalConv(nn.Module):
                 modules.append(
                     nn.Conv1d(input_sz, self.hidden_size, kernel_size=int(ks[1]), stride=1, padding=0)
                 )
-                modules.append(nn.BatchNorm1d(self.hidden_size))
+                if self.use_bn:
+                    modules.append(nn.BatchNorm1d(self.hidden_size))
                 modules.append(nn.ReLU(inplace=True))
         self.temporal_conv = nn.Sequential(*modules)
 

@@ -48,6 +48,14 @@ def main():
     )
     if output["counterfactual"] is None:
         raise AssertionError("Training forward did not generate an intervention view")
+    compressed_steps = int(output["feat_len"].max().item())
+    if (
+        output["conv_logits"].size(0) != compressed_steps
+        or output["sequence_logits"].size(0) != compressed_steps
+    ):
+        raise AssertionError(
+            "CTC logits and compressed feature lengths use different time scales"
+        )
     loss = model.criterion_calculation(output, labels, label_lengths)
     loss.backward()
     torch.cuda.synchronize()

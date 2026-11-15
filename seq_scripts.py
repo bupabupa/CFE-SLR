@@ -29,14 +29,25 @@ def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
             model_inputs["env_ids"] = env_ids
         ret_dict = model(vid, vid_lgt, **model_inputs)
         loss = model.criterion_calculation(ret_dict, label, label_lgt)
-        if np.isinf(loss.item()) or np.isnan(loss.item()):
-            print(data[-1])
-            continue
+        loss_item = loss.item()
+        if not np.isfinite(loss_item):
+            sample_info = data[4] if len(data) > 4 else "unavailable"
+            raise FloatingPointError(
+                "Non-finite loss at epoch {}, batch {}: loss={}, "
+                "video_lengths={}, label_lengths={}, samples={}".format(
+                    epoch_idx,
+                    batch_idx,
+                    loss_item,
+                    vid_lgt.detach().cpu().tolist(),
+                    label_lgt.detach().cpu().tolist(),
+                    sample_info,
+                )
+            )
         optimizer.zero_grad()
         loss.backward()
         # nn.utils.clip_grad_norm_(model.rnn.parameters(), 5)
         optimizer.step()
-        loss_value.append(loss.item())
+        loss_value.append(loss_item)
         if batch_idx % recoder.log_interval == 0:
             recoder.print_log(
                 '\tEpoch: {}, Batch({}/{}) done. Loss: {:.8f}  lr:{:.6f}'
@@ -72,31 +83,25 @@ def seq_eval(cfg, loader, model, device, mode, epoch, work_dir, recoder,
         total_info += [file_name.split("|")[0] for file_name in data[4]]
         total_sent += ret_dict['recognized_sents']
         total_conv_sent += ret_dict['conv_sents']
-    try:
-        python_eval = True if evaluate_tool == "python" else False
-        write2file(work_dir + "output-hypothesis-{}.ctm".format(mode), total_info, total_sent)
-        write2file(work_dir + "output-hypothesis-{}-conv.ctm".format(mode), total_info,
-                   total_conv_sent)
-        conv_ret = evaluate(
-            prefix=work_dir, mode=mode, output_file="output-hypothesis-{}-conv.ctm".format(mode),
-            evaluate_dir=cfg.dataset_info['evaluation_dir'],
-            evaluate_prefix=cfg.dataset_info['evaluation_prefix'],
-            output_dir="epoch_{}_result/".format(epoch),
-            python_evaluate=python_eval,
-        )
-        lstm_ret = evaluate(
-            prefix=work_dir, mode=mode, output_file="output-hypothesis-{}.ctm".format(mode),
-            evaluate_dir=cfg.dataset_info['evaluation_dir'],
-            evaluate_prefix=cfg.dataset_info['evaluation_prefix'],
-            output_dir="epoch_{}_result/".format(epoch),
-            python_evaluate=python_eval,
-            triplet=True,
-        )
-    except:
-        print("Unexpected error:", sys.exc_info()[0])
-        lstm_ret = 100.0
-    finally:
-        pass
+    python_eval = True if evaluate_tool == "python" else False
+    write2file(work_dir + "output-hypothesis-{}.ctm".format(mode), total_info, total_sent)
+    write2file(work_dir + "output-hypothesis-{}-conv.ctm".format(mode), total_info,
+               total_conv_sent)
+    conv_ret = evaluate(
+        prefix=work_dir, mode=mode, output_file="output-hypothesis-{}-conv.ctm".format(mode),
+        evaluate_dir=cfg.dataset_info['evaluation_dir'],
+        evaluate_prefix=cfg.dataset_info['evaluation_prefix'],
+        output_dir="epoch_{}_result/".format(epoch),
+        python_evaluate=python_eval,
+    )
+    lstm_ret = evaluate(
+        prefix=work_dir, mode=mode, output_file="output-hypothesis-{}.ctm".format(mode),
+        evaluate_dir=cfg.dataset_info['evaluation_dir'],
+        evaluate_prefix=cfg.dataset_info['evaluation_prefix'],
+        output_dir="epoch_{}_result/".format(epoch),
+        python_evaluate=python_eval,
+        triplet=True,
+    )
     recoder.print_log(f"Epoch {epoch}, {mode} {lstm_ret: 2.2f}%", f"{work_dir}/{mode}.txt")
     return lstm_ret
 
