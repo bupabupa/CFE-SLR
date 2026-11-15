@@ -1,0 +1,28 @@
+certifi @ file:///croot/certifi_1671487769961/work/certifi
+cffi==1.15.1
+charset-normalizer==3.5.2
+ctcdecode @ file:///var/lib/docker/wd/Sign/codes/VAC_CSLR/third_party/ctcdecode
+cycler==0.11.0
+fonttools==4.38.0
+idna==3.10
+kiwisolver==1.4.5
+matplotlib==3.5.3
+numpy==1.19.5
+opencv-python-headless==4.5.5.64
+packaging==24.0
+pandas==1.3.5
+Pillow==9.5.0
+pycparser==2.21
+pyparsing==3.1.4
+python-dateutil==3.0.0
+pytz==2026.6
+PyYAML==6.0.1
+requests==2.31.0
+scipy==1.2.1
+six==1.16.0
+torch==1.13.1+cu117
+torchvision==0.14.1+cu117
+tqdm==4.66.5
+typing_extensions==4.7.1
+tzdata==2026.6
+urllib3==2.0.7
