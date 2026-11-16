@@ -11,7 +11,7 @@ device: 1
 log_interval: 20
 eval_interval: 1
 save_interval: 5
-evaluate_tool: sclite
+evaluate_tool: python
 
 loss_weights:
   SeqCTC: 1.0
