@@ -53,6 +53,15 @@ def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
                 '\tEpoch: {}, Batch({}/{}) done. Loss: {:.8f}  lr:{:.6f}'
                     .format(epoch_idx, batch_idx, len(loader), loss.item(), clr[0]))
     optimizer.scheduler.step()
+    sampler_stats = getattr(
+        getattr(loader, "batch_sampler", None),
+        "last_epoch_stats",
+        None,
+    )
+    if sampler_stats is not None:
+        recoder.print_log(
+            "\tEnvironment sampler: {}".format(sampler_stats)
+        )
     recoder.print_log('\tMean training loss: {:.10f}.'.format(np.mean(loss_value)))
     return loss_value
 

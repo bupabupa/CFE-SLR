@@ -1,6 +1,7 @@
 import os
 import math
 import random
+from collections import Counter
 
 import numpy as np
 import torch
@@ -30,6 +31,7 @@ class EnvironmentBalancedBatchSampler(Sampler):
             self.batch_count = total // self.batch_size
         else:
             self.batch_count = int(math.ceil(total / float(self.batch_size)))
+        self.last_epoch_stats = None
 
     def __iter__(self):
         queues = {}
@@ -39,6 +41,7 @@ class EnvironmentBalancedBatchSampler(Sampler):
             if self.shuffle:
                 random.shuffle(indices)
 
+        sampled_indices = []
         for _ in range(self.batch_count):
             active_environments = [
                 environment
@@ -56,10 +59,40 @@ class EnvironmentBalancedBatchSampler(Sampler):
                 for environment in active_environments[:self.batch_size]
             ]
 
+            # Fill unavailable environment slots with remaining samples instead
+            # of ending the epoch early when the environment queues are uneven.
+            while len(batch) < self.batch_size:
+                available_environments = [
+                    environment
+                    for environment in active_environments
+                    if queues[environment]
+                ]
+                if not available_environments:
+                    break
+                if self.shuffle:
+                    random.shuffle(available_environments)
+                available_environments.sort(
+                    key=lambda environment: len(queues[environment]),
+                    reverse=True,
+                )
+                batch.append(queues[available_environments[0]].pop())
+
             if len(batch) < self.batch_size and self.drop_last:
                 break
             if batch:
+                sampled_indices.extend(batch)
                 yield batch
+
+        environment_counts = Counter(
+            self.sample_environments[index]
+            for index in sampled_indices
+        )
+        self.last_epoch_stats = {
+            "total_samples": len(self.sample_environments),
+            "sampled_samples": len(sampled_indices),
+            "dropped_samples": len(self.sample_environments) - len(sampled_indices),
+            "environment_counts": dict(sorted(environment_counts.items())),
+        }
 
     def __len__(self):
         return self.batch_count

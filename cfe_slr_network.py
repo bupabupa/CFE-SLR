@@ -1,4 +1,5 @@
 import math
+from contextlib import contextmanager
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,25 @@ from torch.utils.checkpoint import checkpoint
 
 import utils
 from modules import BiLSTMLayer, TemporalConv
+
+
+@contextmanager
+def _temporary_eval_mode(module):
+    """Run a module deterministically without changing its caller's mode."""
+    was_training = module.training
+    module.eval()
+    try:
+        yield
+    finally:
+        module.train(was_training)
+
+
+def _unwrap_parallel_module(module):
+    """Return the wrapped module used by DataParallel or DDP."""
+    parallel_types = (nn.DataParallel, nn.parallel.DistributedDataParallel)
+    while isinstance(module, parallel_types):
+        module = module.module
+    return module
 
 
 class _GradientReversal(torch.autograd.Function):
@@ -208,8 +228,8 @@ def _ctc_forced_align(
                 )
             if (
                 state > 1
-                and state % 2 == 0
-                and labels[state // 2 - 1] != labels[state // 2 - 2]
+                and state % 2 == 1
+                and labels[state // 2] != labels[state // 2 - 1]
             ):
                 candidates.append(
                     (scores[timestep - 1, state - 2], state - 2)
@@ -488,9 +508,10 @@ class CFESLRModel(nn.Module):
     def _extract_frames(self, videos):
         batch, timesteps, channels, height, width = videos.shape
         frames = videos.reshape(batch * timesteps, channels, height, width)
+        visual_encoder = _unwrap_parallel_module(self.visual_encoder)
         encoded = self.visual_encoder(
             frames,
-            use_checkpoint=self.visual_encoder.gradient_checkpointing
+            use_checkpoint=visual_encoder.gradient_checkpointing
             and self.training
             and torch.is_grad_enabled(),
         )
@@ -622,7 +643,7 @@ class CFESLRModel(nn.Module):
             self.training and self._is_enabled(self.loss_weights, "Consistency")
         ) or return_counterfactual
         if should_perturb:
-            with torch.no_grad():
+            with _temporary_eval_mode(self), torch.no_grad():
                 intervened_videos = self.perturbation(x)
                 counterfactual = self._encode_sequence(intervened_videos, len_x)
 

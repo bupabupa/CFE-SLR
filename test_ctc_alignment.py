@@ -58,6 +58,16 @@ def main():
         [[1, 2], [4, 5]],
     )
     assert_alignment(
+        "direct_distinct_glosses",
+        make_log_probs(
+            2,
+            12,
+            [(0, 4), (1, 7)],
+        ),
+        [4, 7],
+        [[0], [1]],
+    )
+    assert_alignment(
         "repeated_glosses",
         make_log_probs(
             7,
@@ -99,6 +109,18 @@ def main():
         pass
     else:
         raise AssertionError("Too-short input should fail CTC alignment")
+
+    try:
+        _ctc_forced_align(
+            make_log_probs(2, 12, [(0, 3), (1, 3)]),
+            torch.tensor([3, 3]),
+            2,
+            2,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Repeated glosses must not skip an omitted blank")
 
     print("ctc_alignment_tests=passed")
 

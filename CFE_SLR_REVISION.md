@@ -28,15 +28,18 @@ with explicit assumptions:
    semantic-preserving intervention views. Prediction consistency encourages
    stable visual CTC outputs under these views.
 
-The perturbation is called an **intervention proxy**, not a structural
-counterfactual. It can support robustness experiments, but it does not by
-itself prove that the learned representation is causally identified.
+The intervention forward pass runs temporarily in evaluation mode without
+gradients, so dropout is disabled and BatchNorm running statistics are not
+updated a second time. The perturbation is called an **intervention proxy**,
+not a structural counterfactual. It can support robustness experiments, but it
+does not by itself prove that the learned representation is causally identified.
 
 ## Correctness fixes from source review
 
 - CTC Viterbi emission states now map odd states through `labels[state // 2]`
   instead of treating the state number as a class id. The skip-blank transition
-  is tested with repeated glosses.
+  is allowed only between different odd label states and is covered by a
+  two-frame direct `A -> B` test.
 - Teacher and student predictions share the compressed sequence time
   coordinate. No index from `conv_logits` is used to index raw frame features.
 - The optional text teacher is trained with gloss-level cross entropy. Its
@@ -46,7 +49,8 @@ itself prove that the learned representation is causally identified.
 - Gradient checkpointing keeps BatchNorm layers in evaluation mode, preventing
   checkpoint recomputation from updating running statistics twice.
 - Multi-GPU setup handles both the VAC encoder (`conv2d`) and CFE encoder
-  (`visual_encoder`), and CPU execution no longer calls `.cuda()`.
+  (`visual_encoder`); wrapped encoder attributes are unwrapped before access.
+  CPU execution no longer calls `.cuda()`.
 - Evaluation errors are no longer converted into a synthetic WER of 100.
 
 ## Privileged text
@@ -79,6 +83,14 @@ network is trained to remain stable, avoiding a second backpropagation graph.
 This is a risk-extrapolation-style invariance penalty, not a proof of causal
 identification.
 
+## Dataset evaluation
+
+The current PHOENIX14 multisigner metadata contains all nine signers in the
+train, dev, and test partitions. Standard results on that split therefore do
+not establish unseen-signer generalization. A signer-disjoint or SI5 split is
+required for that claim. The sampler logs actual environment coverage after
+each training epoch so dropped samples can be audited.
+
 ## Claims that must not be reused
 
 - Do not call fused hidden features `H` a confounder. They are a mediator by
@@ -90,6 +102,8 @@ identification.
 - Do not call GT glosses an inference-time multimodal input.
 - Report multiple seeds, confidence intervals, parameter count, FLOPs, latency,
   and GPU memory in the paper.
+- Do not describe the standard multisigner test split as unseen-signer or
+  environment-shift evaluation.
 
 ## Commands
 
@@ -106,6 +120,7 @@ Correctness tests:
 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_ctc_alignment.py
 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_teacher_distillation.py
 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_model_contracts.py
+/var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_environment_sampler.py
 ```
 
 Real PHOENIX14 batch test:

@@ -1,7 +1,12 @@
 import torch
 import torch.nn as nn
 
-from cfe_slr_network import CFEResNetEncoder, NormLinear
+from cfe_slr_network import (
+    CFEResNetEncoder,
+    NormLinear,
+    _temporary_eval_mode,
+    _unwrap_parallel_module,
+)
 from modules.tconv import TemporalConv
 from utils.device import GpuDataParallel
 
@@ -60,10 +65,45 @@ def main():
     if cpu_device.output_device != "cpu" or cpu_device.gpu_list:
         raise AssertionError("CPU device selection failed")
 
+    wrapped_encoder = nn.DataParallel(
+        checkpointed_encoder,
+        device_ids=[0],
+    )
+    if _unwrap_parallel_module(wrapped_encoder) is not checkpointed_encoder:
+        raise AssertionError("Parallel encoder unwrapping failed")
+
+    class DeterministicHarness(nn.Module):
+        def __init__(self):
+            super(DeterministicHarness, self).__init__()
+            self.batch_norm = nn.BatchNorm1d(4)
+            self.dropout = nn.Dropout(p=0.5)
+
+        def forward(self, inputs):
+            return self.batch_norm(self.dropout(inputs))
+
+    deterministic_harness = DeterministicHarness()
+    deterministic_harness.train()
+    running_mean = deterministic_harness.batch_norm.running_mean.clone()
+    inputs = torch.randn(8, 4)
+    with _temporary_eval_mode(deterministic_harness):
+        first = deterministic_harness(inputs)
+        second = deterministic_harness(inputs)
+        if not torch.allclose(first, second):
+            raise AssertionError("Temporary eval mode left dropout enabled")
+        if not torch.equal(
+            deterministic_harness.batch_norm.running_mean,
+            running_mean,
+        ):
+            raise AssertionError("Temporary eval mode updated BatchNorm stats")
+    if not deterministic_harness.training:
+        raise AssertionError("Temporary eval mode did not restore training mode")
+
     print("temporal_conv_use_bn=passed")
     print("norm_linear=passed")
     print("checkpoint_batchnorm=passed")
     print("cpu_device=passed")
+    print("parallel_unwrap=passed")
+    print("deterministic_intervention=passed")
 
 
 if __name__ == "__main__":
