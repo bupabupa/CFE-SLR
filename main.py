@@ -200,7 +200,7 @@ class Processor():
                 dataset,
                 batch_sampler=batch_sampler,
                 num_workers=self.arg.num_worker,
-                collate_fn=self.feeder.collate_fn,
+                collate_fn=dataset.collate_fn,
             )
         return torch.utils.data.DataLoader(
             dataset,
@@ -208,7 +208,7 @@ class Processor():
             shuffle=train_flag,
             drop_last=train_flag,
             num_workers=self.arg.num_worker,  # if train_flag else 0
-            collate_fn=self.feeder.collate_fn,
+            collate_fn=dataset.collate_fn,
         )
 
 

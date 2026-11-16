@@ -121,6 +121,7 @@ Correctness tests:
 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_teacher_distillation.py
 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_model_contracts.py
 /var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_environment_sampler.py
+/var/lib/docker/wd/miniconda3/envs/VAC/bin/python test_dataloader_contract.py
 ```
 
 Real PHOENIX14 batch test:
