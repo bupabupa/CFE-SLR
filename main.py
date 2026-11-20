@@ -46,7 +46,7 @@ class Processor():
                 eval_model = epoch % self.arg.eval_interval == 0
                 # train end2end model
                 seq_train(self.data_loader['train'], self.model, self.optimizer,
-                          self.device, epoch, self.recoder)
+                          self.device, epoch, self.recoder, self.arg.grad_clip)
                 if eval_model:
                     dev_wer = seq_eval(self.arg, self.data_loader['dev'], self.model, self.device,
                                        'dev', epoch, self.arg.work_dir, self.recoder, self.arg.evaluate_tool)

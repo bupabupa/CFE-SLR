@@ -118,6 +118,11 @@ def get_parser():
         '--batch-size', type=int, default=16, help='training batch size')
     parser.add_argument(
         '--test-batch-size', type=int, default=8, help='test batch size')
+    parser.add_argument(
+        '--grad-clip',
+        type=float,
+        default=5.0,
+        help='maximum global gradient norm; non-positive disables clipping')
 
     default_optimizer_dict = {
         "base_lr": 1e-2,

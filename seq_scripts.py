@@ -11,9 +11,10 @@ import matplotlib.pyplot as plt
 from evaluation.slr_eval.wer_calculation import evaluate
 
 
-def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
+def seq_train(loader, model, optimizer, device, epoch_idx, recoder, grad_clip=5.0):
     model.train()
     loss_value = []
+    skipped_batches = []
     clr = [group['lr'] for group in optimizer.optimizer.param_groups]
     for batch_idx, data in enumerate(tqdm(loader)):
         vid = device.data_to_device(data[0])
@@ -31,21 +32,36 @@ def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
         loss = model.criterion_calculation(ret_dict, label, label_lgt)
         loss_item = loss.item()
         if not np.isfinite(loss_item):
-            sample_info = data[4] if len(data) > 4 else "unavailable"
-            raise FloatingPointError(
-                "Non-finite loss at epoch {}, batch {}: loss={}, "
-                "video_lengths={}, label_lengths={}, samples={}".format(
-                    epoch_idx,
-                    batch_idx,
-                    loss_item,
-                    vid_lgt.detach().cpu().tolist(),
-                    label_lgt.detach().cpu().tolist(),
-                    sample_info,
+            skipped_batches.append(batch_idx)
+            optimizer.zero_grad()
+            recoder.print_log(
+                "\tSkipping non-finite loss at epoch {}, batch {}: loss={}".format(
+                    epoch_idx, batch_idx, loss_item
                 )
             )
+            continue
         optimizer.zero_grad()
         loss.backward()
-        # nn.utils.clip_grad_norm_(model.rnn.parameters(), 5)
+        if grad_clip > 0:
+            grad_norm = nn.utils.clip_grad_norm_(
+                model.parameters(),
+                grad_clip,
+            )
+        else:
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                float("inf"),
+            )
+        if not torch.isfinite(grad_norm):
+            skipped_batches.append(batch_idx)
+            optimizer.zero_grad()
+            recoder.print_log(
+                "\tSkipping non-finite gradient at epoch {}, batch {}: "
+                "loss={}, grad_norm={}".format(
+                    epoch_idx, batch_idx, loss_item, grad_norm.item()
+                )
+            )
+            continue
         optimizer.step()
         loss_value.append(loss_item)
         if batch_idx % recoder.log_interval == 0:
@@ -62,7 +78,14 @@ def seq_train(loader, model, optimizer, device, epoch_idx, recoder):
         recoder.print_log(
             "\tEnvironment sampler: {}".format(sampler_stats)
         )
-    recoder.print_log('\tMean training loss: {:.10f}.'.format(np.mean(loss_value)))
+    if skipped_batches:
+        recoder.print_log(
+            "\tSkipped {} non-finite batch(es): {}".format(
+                len(skipped_batches), skipped_batches
+            )
+        )
+    mean_loss = np.mean(loss_value) if loss_value else float("nan")
+    recoder.print_log('\tMean training loss: {:.10f}.'.format(mean_loss))
     return loss_value
 
 
